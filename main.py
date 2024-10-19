@@ -10,11 +10,7 @@ from Device import Device
 class DeviceManager:
     def __init__(self):
         self.signer = self.loadKeys()
-
-        self.devices = {
-            'usb': self.connectUSBDevice(),
-            'wireless': self.connectWifiDevices()
-        }
+        self.devices = self.connect()
 
 
     def loadKeys(self):
@@ -33,21 +29,33 @@ class DeviceManager:
         return signer
 
 
-    def connectUSBDevice(self) -> Device:
+    def connect(self) -> list[Device]:
+        return [self.connectWiredDevice()] + self.connectWirelessDevices()
+
+
+    def connectWiredDevice(self) -> Device:
         dev = Device()
         dev.connectWired(self.signer)
+        if dev.ip != None:
+            dev.connectWireless(self.signer, dev.ip)
 
         return dev
         
 
-    def connectWifiDevices(self) -> list[Device]:
+    def connectWirelessDevices(self) -> list[Device]:
         return list()
+
+
+    def disconnect(self):
+        for dev in self.devices:
+            dev.disconnect()
 
 
 
 def main():
     deviceManager = DeviceManager()
     pass
+    deviceManager.disconnect()
 
 
 if __name__ == '__main__':
