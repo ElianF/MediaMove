@@ -72,10 +72,17 @@ class DeviceManager:
 
 
 def main():
+    pathlib.Path('.tmp').mkdir(exist_ok=True)
+    
     deviceManager = DeviceManager()
     deviceManager.loadKeys()
     deviceManager.connect()
-    pass
+
+    for dev in deviceManager.devices:
+        dev.loadConfig()
+        pass
+        dev.saveConfig()
+    
     deviceManager.disconnect()
 
 

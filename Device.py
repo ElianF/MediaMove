@@ -1,3 +1,5 @@
+import json
+import pathlib
 import subprocess
 import time
 
@@ -11,6 +13,13 @@ class Device:
         self.ip = None
 
         self.wireless = None
+    
+
+    def __call__(self):
+        if self.wired != None:
+            return self.wired
+        else:
+            return self.wireless
 
     
     def connectWired(self, signer):
@@ -50,3 +59,21 @@ class Device:
             self.wired.close()
         if self.wireless != None:
             self.wireless.close()
+
+
+    def loadConfig(self):
+        remotePath = pathlib.Path('/sdcard', 'MediaMove', 'config.json')
+        localPath = pathlib.Path('.tmp', f'{self.serialno}_config.json')
+
+        self().pull(str(remotePath), localPath)
+
+
+    def saveConfig(self):
+        remotePath = pathlib.Path('/sdcard', 'MediaMove', 'config.json')
+        localPath = pathlib.Path('.tmp', f'{self.serialno}_config.json')
+
+        content = json.loads(localPath.read_bytes())
+        localPath.write_text(json.dumps(content, indent=4))
+
+        self().push(localPath, str(remotePath), mtime=int(localPath.stat().st_mtime))
+        localPath.unlink()
