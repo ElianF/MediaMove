@@ -20,8 +20,8 @@ class DeviceManager:
         if not self.deviceLog.exists():
             self.deviceLog.write_text('{}')
         
-        self.signer = self.loadKeys()
-        self.devices = self.connect()
+        self.signer = None
+        self.devices = list()
 
 
     def loadKeys(self):
@@ -32,16 +32,16 @@ class DeviceManager:
             secretKey.parent.mkdir(exist_ok=True)
             keygen(str(secretKey))
         
-        signer = PythonRSASigner(
+        self.signer = PythonRSASigner(
             publicKey.read_text(), 
             secretKey.read_text()
         )
 
-        return signer
 
-
-    def connect(self) -> list[Device]:
-        return list(filter(lambda e: e!=None, [self.connectWiredDevice()] + self.connectWirelessDevices()))
+    def connect(self):
+        for dev in [self.connectWiredDevice()] + self.connectWirelessDevices():
+            if dev != None:
+                self.devices.append(dev)
 
 
     def connectWiredDevice(self) -> Device:
@@ -73,6 +73,8 @@ class DeviceManager:
 
 def main():
     deviceManager = DeviceManager()
+    deviceManager.loadKeys()
+    deviceManager.connect()
     pass
     deviceManager.disconnect()
 
