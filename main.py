@@ -2,6 +2,7 @@ import json
 import pathlib
 import subprocess
 import re
+from typing import Iterator
 
 from adb_shell.auth.sign_pythonrsa import PythonRSASigner
 from adb_shell.auth.keygen import keygen
@@ -39,7 +40,7 @@ class DeviceManager:
 
 
     def connect(self):
-        for dev in [self.connectWiredDevice()] + self.connectWirelessDevices():
+        for dev in [self.connectWiredDevice()] + list(self.connectWirelessDevices()):
             if dev != None:
                 self.devices.append(dev)
 
@@ -55,14 +56,20 @@ class DeviceManager:
             dev.connectWireless(self.signer, dev.ip)
 
             deviceLogJson = json.loads(self.deviceLog.read_bytes())
-            deviceLogJson.setdefault(dev.serialno, dict())[self.gatewayMac] = dev.ip
+            deviceLogJson.setdefault(dev.gatewayMac, dict())[self.serialno] = dev.ip
             self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
 
         return dev
         
 
-    def connectWirelessDevices(self) -> list[Device]:
-        return list()
+    def connectWirelessDevices(self) -> Iterator[Device]:
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())
+
+        for serialno, ip in deviceLogJson[self.gatewayMac].items():
+            dev = Device()
+            dev.connectWireless(self.signer, ip)
+            if serialno == dev.serialno:
+                yield dev
 
 
     def disconnect(self):

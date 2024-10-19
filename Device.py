@@ -6,6 +6,7 @@ import time
 from adb_shell.adb_device import AdbDeviceTcp, AdbDeviceUsb
 from adb_shell.exceptions import UsbDeviceNotFoundError
 
+
 class Device:
     def __init__(self):
         self.wired = None
@@ -52,7 +53,9 @@ class Device:
             print("Warning, exception occurred:", type(e).__name__, "–", e)
         else:
             self.wireless = dev
-    
+            self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')
+            self.ip = dev.shell('ip addr show wlan0 | grep "inet " | cut -d " " -f 6 | cut -d / -f 1')[:-1]
+        
 
     def disconnect(self):
         if self.wired != None:
