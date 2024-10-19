@@ -1,14 +1,25 @@
-import os
+import json
 import pathlib
+import subprocess
+import re
 
 from adb_shell.auth.sign_pythonrsa import PythonRSASigner
 from adb_shell.auth.keygen import keygen
+import netifaces
 
 from Device import Device
 
 
 class DeviceManager:
     def __init__(self):
+        self.gatewayIP = netifaces.gateways()['default'][netifaces.AF_INET][0]
+        proc = subprocess.run('ip neigh show', shell=True, stdout=subprocess.PIPE)
+        self.gatewayMac = re.findall(str(self.gatewayIP) + '(?: .*?){3} (.*?) .*', str(proc.stdout))[0]
+
+        self.deviceLog = pathlib.Path('deviceLog.json')
+        if not self.deviceLog.exists():
+            self.deviceLog.write_text('{}')
+        
         self.signer = self.loadKeys()
         self.devices = self.connect()
 
@@ -38,6 +49,10 @@ class DeviceManager:
         dev.connectWired(self.signer)
         if dev.ip != None:
             dev.connectWireless(self.signer, dev.ip)
+
+            deviceLogJson = json.loads(self.deviceLog.read_bytes())
+            deviceLogJson.setdefault(dev.serialno, dict())[self.gatewayMac] = dev.ip
+            self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
 
         return dev
         
