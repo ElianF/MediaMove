@@ -41,12 +41,16 @@ class DeviceManager:
 
 
     def connect(self) -> list[Device]:
-        return [self.connectWiredDevice()] + self.connectWirelessDevices()
+        return list(filter(lambda e: e!=None, [self.connectWiredDevice()] + self.connectWirelessDevices()))
 
 
     def connectWiredDevice(self) -> Device:
         dev = Device()
         dev.connectWired(self.signer)
+
+        if dev.wired == None:
+            return None
+
         if dev.ip != None:
             dev.connectWireless(self.signer, dev.ip)
 

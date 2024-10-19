@@ -2,6 +2,7 @@ import subprocess
 import time
 
 from adb_shell.adb_device import AdbDeviceTcp, AdbDeviceUsb
+from adb_shell.exceptions import UsbDeviceNotFoundError
 
 class Device:
     def __init__(self):
@@ -13,6 +14,7 @@ class Device:
 
     
     def connectWired(self, signer):
+        self.wired = None
         try:
             dev = AdbDeviceUsb()
             dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
@@ -22,9 +24,10 @@ class Device:
                 time.sleep(5)
                 dev = AdbDeviceUsb()
                 dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+        except UsbDeviceNotFoundError:
+            pass
         except Exception as e:
-            print(e)
-            self.wired = None
+            print("Warning, exception occurred:", type(e).__name__, "–", e)
         else:
             self.wired = dev
             self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')
@@ -32,12 +35,12 @@ class Device:
         
 
     def connectWireless(self, signer, ip):
+        self.wireless = None
         try:
             dev = AdbDeviceTcp(ip, default_transport_timeout_s=9.)
             dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
         except Exception as e:
-            print(e)
-            self.wireless = None
+            print("Warning, exception occurred:", type(e).__name__, "–", e)
         else:
             self.wireless = dev
     
