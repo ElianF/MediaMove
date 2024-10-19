@@ -1,5 +1,7 @@
+import datetime
 import json
 import pathlib
+import re
 import subprocess
 import time
 import socket
@@ -48,7 +50,7 @@ class Device:
     def connectWireless(self, signer, ip):
         self.wireless = None
         try:
-            dev = AdbDeviceTcp(ip, default_transport_timeout_s=9.)
+            dev = AdbDeviceTcp(ip)
             dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
         except Exception as e:
             print("Warning, exception occurred:", type(e).__name__, "–", e)
@@ -77,31 +79,88 @@ class Device:
         }
         
         name = socket.gethostname()
-        remotePath = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        localPath = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
+        remoteConfig = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
+        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
 
-        if 1 == self().shell(f'test -e {remotePath.parent}; echo $?'):
-            self().shell(f'mkdir {remotePath.parent}')
+        if 1 == self().shell(f'test -e {remoteConfig.parent}; echo $?'):
+            self().shell(f'mkdir {remoteConfig.parent}')
         
-        if 1 == self().shell(f'test -e {remotePath}; echo $?'):
-            localPath.write_text(json.dumps([template], indent=4))
+        if 1 == self().shell(f'test -e {remoteConfig}; echo $?'):
+            localConfig.write_text(json.dumps([template], indent=4))
         else:
-            if not localPath.exists():
-                self().pull(str(remotePath), localPath)
+            if not localConfig.exists():
+                self().pull(str(remoteConfig), localConfig)
 
-            content = json.loads(localPath.read_bytes())
+            content = json.loads(localConfig.read_bytes())
             if template not in content:
                 content.append(template)
-                localPath.write_text(json.dumps(content, indent=4))
+                localConfig.write_text(json.dumps(content, indent=4))
 
 
     def saveConfig(self):
         name = socket.gethostname()
-        remotePath = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        localPath = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
+        remoteConfig = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
+        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
 
-        content = json.loads(localPath.read_bytes())
-        localPath.write_text(json.dumps(content, indent=4))
+        content = json.loads(localConfig.read_bytes())
+        localConfig.write_text(json.dumps(content, indent=4))
 
-        self().push(localPath, str(remotePath), mtime=int(localPath.stat().st_mtime))
-        localPath.unlink()
+        self().push(localConfig, str(remoteConfig), mtime=int(localConfig.stat().st_mtime))
+        localConfig.unlink()
+    
+
+    def fetch(self):
+        name = socket.gethostname()
+        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
+        tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
+        newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
+        changes = dict()
+        groupPattern = '([ +-])(.*?):\n(?:[ +-]total \d+\n)?((?:.|\n)*)'
+        timePat = '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d+? [ +-]\d{4}'
+        filePattern = '([+-])(.).*? (\d+) (' + timePat +') (.*)'
+
+        syncDirs = [sync['remote'] for sync in json.loads(localConfig.read_bytes())]
+        syncDirs.remove('')
+
+        if '1' == self().shell('test -e {tree}; echo $?').replace('\n', ''):
+            self().shell(f'touch {tree}')
+        
+        out = self().shell(fr'ls -RAlt -og --full-time {" ".join(map(str, syncDirs))} > {newtree}; diff -u {tree} {newtree} | grep -e ":$" -e "^[+-]"')
+        
+        out = out.split('\n', maxsplit=2)[2]
+        out = re.sub('\s{2,}', ' ', out)
+
+        for part in out.split('\n+\n'):
+            dirSign, dir, changesStr = re.findall(groupPattern, part)[0]
+            
+            if dirSign != ' ':
+                if all(map(lambda parent: str(parent) not in changes, [pathlib.Path(dir)]+list(pathlib.Path(dir).parents))):
+                    changes[dir] = dirSign
+                continue
+        
+            changes[dir] = list()
+            lookup = list()
+            for change in changesStr.split('\n'):
+                sign, dirBit, size, timeStr, title = re.findall(filePattern, change)[0]
+
+                if dirBit == 'd':
+                    changes[title] = sign
+                    continue
+                
+                bundle = [
+                    sign, 
+                    int(size), 
+                    datetime.datetime.fromisoformat(timeStr), 
+                    title
+                ]
+                
+                if title in lookup:
+                    if bundle[0] == '-':
+                        bundle = changes[dir][lookup.index(title)]
+                    bundle[0] = '~'
+                    del changes[dir][lookup.index(title)]
+
+                lookup.append(title)
+                changes[dir].append(bundle)
+
+        return changes

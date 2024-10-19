@@ -87,7 +87,7 @@ def main():
 
     for dev in deviceManager.devices:
         dev.loadConfig()
-        pass
+        dev.fetch()
         dev.saveConfig()
     
     deviceManager.disconnect()
