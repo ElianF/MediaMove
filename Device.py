@@ -1,4 +1,5 @@
 import datetime
+import io
 import json
 import pathlib
 import re
@@ -18,10 +19,12 @@ class Device:
     
 
     def fetch(self):
-        if '1' == self.execute(f'test -e "{self.tree.absolute()}"; echo $?').replace('\n', ''):
+        if '1\n' == self.execute(f'test -e "{self.tree.absolute()}"; echo $?'):
             self.execute(f'touch "{self.tree.absolute()}"')
         
         syncDirs = '" "'.join(map(str, self.syncDirs()))
+        if syncDirs == '':
+            return ''
         out = self.execute(f'ls -RAlt -og --full-time "{syncDirs}" > "{self.newtree.absolute()}"; diff -u "{self.tree.absolute()}" "{self.newtree.absolute()}" | grep -e ":$" -e "^[+-]"')
         
         out = out.split('\n', maxsplit=2)[2]
@@ -67,6 +70,9 @@ class Device:
         groupPattern = '([ +-])(.*?):\n(?:[ +-]\w+? \d+\n)?((?:.|\n)*)'
 
         for group in self.fetch().split('\n+\n'):
+            if group == '':
+                break
+
             dirSign, dir, changesStr = re.findall(groupPattern, group)[0]
             
             if dirSign == ' ':
@@ -96,8 +102,8 @@ class Host(Device):
 
 
     def syncDirs(self) -> list:
-        content = self.remote.execute(f'cat "{self.remote.config}"')
-        syncDirs = [sync['local'] for sync in json.loads(content)]
+        content = self.remote.loadConfig()
+        syncDirs = [sync['local'] for sync in content]
         syncDirs.remove('')
 
         return syncDirs
@@ -128,8 +134,8 @@ class PortableDevice(Device):
     
 
     def syncDirs(self) -> list:
-        content = self().shell(f'cat {self.config}')
-        syncDirs = [sync['remote'] for sync in json.loads(content)]
+        content = self.loadConfig()
+        syncDirs = [sync['remote'] for sync in content]
         syncDirs.remove('')
 
         return syncDirs
@@ -149,7 +155,7 @@ class PortableDevice(Device):
         try:
             dev = AdbDeviceUsb()
             dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
-            if '5555' != dev.shell('getprop service.adb.tcp.port').replace('\n', ''):
+            if '5555\n' != dev.shell('getprop service.adb.tcp.port'):
                 dev.close()
                 subprocess.run('adb disconnect && adb tcpip 5555 && adb kill-server && echo done', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
                 time.sleep(5)
@@ -197,7 +203,7 @@ class PortableDevice(Device):
             self.wireless.close()
 
 
-    def loadConfig(self):
+    def loadConfig(self) -> list[dict]:
         template = {
             "uniqueLocal": "copy/move/delete/ignore",
             "newLocal": "updateLocal/updateRemote/ignore",
@@ -207,33 +213,19 @@ class PortableDevice(Device):
             "remote": "",
             "excl": []
         }
-        
-        name = socket.gethostname()
-        remoteConfig = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
 
-        if 1 == self().shell(f'test -e {remoteConfig.parent}; echo $?'):
-            self().shell(f'mkdir {remoteConfig.parent}')
+        if '1\n' == self().shell(f'test -e {self.config.parent}; echo $?'):
+            self().shell(f'mkdir {self.config.parent}')
         
-        if 1 == self().shell(f'test -e {remoteConfig}; echo $?'):
-            localConfig.write_text(json.dumps([template], indent=4))
+        if '1\n' == self().shell(f'test -e {self.config}; echo $?'):
+            content = list()
         else:
-            if not localConfig.exists():
-                self().pull(str(remoteConfig), localConfig)
+            content = json.loads(self().shell(f'cat {self.config}'))
 
-            content = json.loads(localConfig.read_bytes())
-            if template not in content:
-                content.append(template)
-                localConfig.write_text(json.dumps(content, indent=4))
-
-
-    def saveConfig(self):
-        name = socket.gethostname()
-        remoteConfig = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
-
-        content = json.loads(localConfig.read_bytes())
-        localConfig.write_text(json.dumps(content, indent=4))
-
-        self().push(localConfig, str(remoteConfig), mtime=int(localConfig.stat().st_mtime))
-        localConfig.unlink()
+        if template not in content:
+            content.append(template)
+        
+            buffer = io.BytesIO(bytes(json.dumps(content, indent=4), 'utf-8'))
+            self().push(buffer, self.config)
+        
+        return content

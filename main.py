@@ -24,7 +24,6 @@ class DeviceManager:
         
         self.signer = None
         self.devices:list[PortableDevice] = list()
-        self.host = lambda dev: Host(dev)
 
 
     def loadKeys(self):
@@ -93,12 +92,8 @@ def main():
     deviceManager.connect()
 
     for dev in deviceManager.devices:
-        dev.loadConfig()
-
-        syncManager = SyncManager(src=dev, dst=deviceManager.host(dev))
+        syncManager = SyncManager(device=dev)
         syncManager.getChanges()
-        
-        dev.saveConfig()
     
     deviceManager.disconnect()
 
