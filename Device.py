@@ -7,7 +7,6 @@ import time
 import socket
 
 from adb_shell.adb_device import AdbDeviceTcp, AdbDeviceUsb
-from adb_shell.exceptions import UsbDeviceNotFoundError
 
 
 class Device:
@@ -24,11 +23,11 @@ class Device:
             dev = self.wired
         else:
             dev = self.wireless
-        if wake: dev.shell('input keyevent KEYCODE_WAKEUP')
+            if wake: dev.shell('input keyevent KEYCODE_WAKEUP')
         return dev
 
     
-    def connectWired(self, signer):
+    def connectWired(self, signer, retry=False):
         self.wired = None
         try:
             dev = AdbDeviceUsb()
@@ -39,10 +38,20 @@ class Device:
                 time.sleep(5)
                 dev = AdbDeviceUsb()
                 dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
-        except UsbDeviceNotFoundError:
-            pass
-        except Exception as e:
-            print("Warning, exception occurred:", type(e).__name__, "–", e)
+        
+        except Exception as err:
+            if type(err).__name__ in ['UsbDeviceNotFoundError']:
+                pass
+            elif type(err).__name__ == 'USBErrorBusy':
+                if not retry:
+                    subprocess.run('adb kill-server', shell=True)
+                    time.sleep(5)
+                    self.connectWired(signer, retry=True)
+                else:
+                    print("[3] Warning, exception occurred:", type(err).__name__, "–", err)
+            else:
+                print("[1] Warning, exception occurred:", type(err).__name__, "–", err)
+        
         else:
             self.wired = dev
             self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')
@@ -54,8 +63,10 @@ class Device:
         try:
             dev = AdbDeviceTcp(ip)
             dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+        
         except Exception as e:
-            print("Warning, exception occurred:", type(e).__name__, "–", e)
+            print("[2] Warning, exception occurred:", type(e).__name__, "–", e)
+        
         else:
             self.wireless = dev
             self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')

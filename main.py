@@ -40,9 +40,12 @@ class DeviceManager:
 
 
     def connect(self):
-        for dev in [self.connectWiredDevice()] + list(self.connectWirelessDevices()):
-            if dev != None:
-                self.devices.append(dev)
+        dev = self.connectWiredDevice()
+        if dev != None:
+            self.devices.append(dev)
+            self.devices.extend(self.connectWirelessDevices(dev.serialno))
+        else:
+            self.devices.extend(self.connectWirelessDevices())
 
 
     def connectWiredDevice(self) -> Device:
@@ -56,16 +59,18 @@ class DeviceManager:
             dev.connectWireless(self.signer, dev.ip)
 
             deviceLogJson = json.loads(self.deviceLog.read_bytes())
-            deviceLogJson.setdefault(dev.gatewayMac, dict())[self.serialno] = dev.ip
+            deviceLogJson.setdefault(self.gatewayMac, dict())[dev.serialno] = dev.ip
             self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
 
         return dev
         
 
-    def connectWirelessDevices(self) -> Iterator[Device]:
+    def connectWirelessDevices(self, usbSerialno:str='') -> Iterator[Device]:
         deviceLogJson = json.loads(self.deviceLog.read_bytes())
 
         for serialno, ip in deviceLogJson[self.gatewayMac].items():
+            if serialno == usbSerialno:
+                continue
             dev = Device()
             dev.connectWireless(self.signer, ip)
             if serialno == dev.serialno:
