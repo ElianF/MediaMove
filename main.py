@@ -41,29 +41,29 @@ class DeviceManager:
 
 
     def connect(self):
-        dev = self.connectWiredDevice()
-        if dev != None:
-            self.devices.append(dev)
-            self.devices.extend(self.connectWirelessDevices(dev.serialno))
+        device = self.connectWiredDevice()
+        if device != None:
+            self.devices.append(device)
+            self.devices.extend(self.connectWirelessDevices(device.serialno))
         else:
             self.devices.extend(self.connectWirelessDevices())
 
 
     def connectWiredDevice(self) -> PortableDevice:
-        dev = PortableDevice()
-        dev.connectWired(self.signer)
+        device = PortableDevice()
+        device.connectWired(self.signer)
 
-        if dev.wired == None:
+        if device.wired == None:
             return None
 
-        if dev.ip != None:
-            dev.connectWireless(self.signer, dev.ip)
+        if device.ip != None:
+            device.connectWireless(self.signer, device.ip)
 
             deviceLogJson = json.loads(self.deviceLog.read_bytes())
-            deviceLogJson.setdefault(self.gatewayMac, dict())[dev.serialno] = dev.ip
+            deviceLogJson.setdefault(self.gatewayMac, dict())[device.serialno] = device.ip
             self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
 
-        return dev
+        return device
         
 
     def connectWirelessDevices(self, usbSerialno:str='') -> Iterator[PortableDevice]:
@@ -72,15 +72,15 @@ class DeviceManager:
         for serialno, ip in deviceLogJson[self.gatewayMac].items():
             if serialno == usbSerialno:
                 continue
-            dev = PortableDevice()
-            dev.connectWireless(self.signer, ip)
-            if serialno == dev.serialno:
-                yield dev
+            device = PortableDevice()
+            device.connectWireless(self.signer, ip)
+            if serialno == device.serialno:
+                yield device
 
 
     def disconnect(self):
-        for dev in self.devices:
-            dev.disconnect()
+        for device in self.devices:
+            device.disconnect()
 
 
 
@@ -91,8 +91,8 @@ def main():
     deviceManager.loadKeys()
     deviceManager.connect()
 
-    for dev in deviceManager.devices:
-        syncManager = SyncManager(device=dev)
+    for device in deviceManager.devices:
+        syncManager = SyncManager(device=device)
         syncManager.getChanges()
     
     deviceManager.disconnect()

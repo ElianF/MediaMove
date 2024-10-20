@@ -153,14 +153,14 @@ class PortableDevice(Device):
     def connectWired(self, signer, retry=False):
         self.wired = None
         try:
-            dev = AdbDeviceUsb()
-            dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
-            if '5555\n' != dev.shell('getprop service.adb.tcp.port'):
-                dev.close()
+            device = AdbDeviceUsb()
+            device.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+            if '5555\n' != device.shell('getprop service.adb.tcp.port'):
+                device.close()
                 subprocess.run('adb disconnect && adb tcpip 5555 && adb kill-server && echo done', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
                 time.sleep(5)
-                dev = AdbDeviceUsb()
-                dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+                device = AdbDeviceUsb()
+                device.connect(rsa_keys=[signer], auth_timeout_s=0.1)
         
         except Exception as err:
             if type(err).__name__ in ['UsbDeviceNotFoundError']:
@@ -176,24 +176,24 @@ class PortableDevice(Device):
                 print("[1] Warning, exception occurred:", type(err).__name__, "–", err)
         
         else:
-            self.wired = dev
-            self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')
-            self.ip = dev.shell('ip addr show wlan0 | grep "inet " | cut -d " " -f 6 | cut -d / -f 1')[:-1]
+            self.wired = device
+            self.serialno = device.shell('getprop ro.boot.serialno').replace('\n', '')
+            self.ip = device.shell('ip addr show wlan0 | grep "inet " | cut -d " " -f 6 | cut -d / -f 1')[:-1]
         
 
     def connectWireless(self, signer, ip):
         self.wireless = None
         try:
-            dev = AdbDeviceTcp(ip)
-            dev.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+            device = AdbDeviceTcp(ip)
+            device.connect(rsa_keys=[signer], auth_timeout_s=0.1)
         
         except Exception as e:
             print("[2] Warning, exception occurred:", type(e).__name__, "–", e)
         
         else:
-            self.wireless = dev
-            self.serialno = dev.shell('getprop ro.boot.serialno').replace('\n', '')
-            self.ip = dev.shell('ip addr show wlan0 | grep "inet " | cut -d " " -f 6 | cut -d / -f 1')[:-1]
+            self.wireless = device
+            self.serialno = device.shell('getprop ro.boot.serialno').replace('\n', '')
+            self.ip = device.shell('ip addr show wlan0 | grep "inet " | cut -d " " -f 6 | cut -d / -f 1')[:-1]
         
 
     def disconnect(self):
