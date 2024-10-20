@@ -143,11 +143,11 @@ class PortableDevice(Device):
 
     def __call__(self, wake=False):
         if self.wired != None:
-            dev = self.wired
+            device = self.wired
         else:
-            dev = self.wireless
-            if wake: dev.shell('input keyevent KEYCODE_WAKEUP')
-        return dev
+            device = self.wireless
+            if wake: device.shell('input keyevent KEYCODE_WAKEUP')
+        return device
 
     
     def connectWired(self, signer, retry=False):
