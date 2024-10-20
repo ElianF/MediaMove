@@ -19,11 +19,13 @@ class Device:
         self.wireless = None
     
 
-    def __call__(self):
+    def __call__(self, wake=False):
         if self.wired != None:
-            return self.wired
+            dev = self.wired
         else:
-            return self.wireless
+            dev = self.wireless
+        if wake: dev.shell('input keyevent KEYCODE_WAKEUP')
+        return dev
 
     
     def connectWired(self, signer):
@@ -109,36 +111,33 @@ class Device:
         localConfig.unlink()
     
 
-    def fetch(self):
-        name = socket.gethostname()
-        localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
-        tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
-        newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
+    def getChanges(self):
         changes = dict()
         groupPattern = '([ +-])(.*?):\n(?:[ +-]total \d+\n)?((?:.|\n)*)'
         timePat = '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d+? [ +-]\d{4}'
         filePattern = '([+-])(.).*? (\d+) (' + timePat +') (.*)'
 
-        syncDirs = [sync['remote'] for sync in json.loads(localConfig.read_bytes())]
-        syncDirs.remove('')
+        def fetch() -> str:
+            name = socket.gethostname()
+            localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
+            tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
+            newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
 
-        if '1' == self().shell('test -e {tree}; echo $?').replace('\n', ''):
-            self().shell(f'touch {tree}')
-        
-        out = self().shell(fr'ls -RAlt -og --full-time {" ".join(map(str, syncDirs))} > {newtree}; diff -u {tree} {newtree} | grep -e ":$" -e "^[+-]"')
-        
-        out = out.split('\n', maxsplit=2)[2]
-        out = re.sub('\s{2,}', ' ', out)
+            syncDirs = [sync['remote'] for sync in json.loads(localConfig.read_bytes())]
+            syncDirs.remove('')
 
-        for part in out.split('\n+\n'):
-            dirSign, dir, changesStr = re.findall(groupPattern, part)[0]
+            if '1' == self().shell('test -e {tree}; echo $?').replace('\n', ''):
+                self().shell(f'touch {tree}')
             
-            if dirSign != ' ':
-                if all(map(lambda parent: str(parent) not in changes, [pathlib.Path(dir)]+list(pathlib.Path(dir).parents))):
-                    changes[dir] = dirSign
-                continue
-        
-            changes[dir] = list()
+            out = self(wake=True).shell(fr'ls -RAlt -og --full-time {" ".join(map(str, syncDirs))} > {newtree}; diff -u {tree} {newtree} | grep -e ":$" -e "^[+-]"')
+            
+            out = out.split('\n', maxsplit=2)[2]
+            out = re.sub('\s{2,}', ' ', out)
+
+            return out
+
+        def iterateFileChanges(changesStr:str) -> list[str]:
+            ret = list()
             lookup = list()
             for change in changesStr.split('\n'):
                 sign, dirBit, size, timeStr, title = re.findall(filePattern, change)[0]
@@ -156,11 +155,23 @@ class Device:
                 
                 if title in lookup:
                     if bundle[0] == '-':
-                        bundle = changes[dir][lookup.index(title)]
+                        bundle = ret[lookup.index(title)]
                     bundle[0] = '~'
-                    del changes[dir][lookup.index(title)]
+                    del ret[lookup.index(title)]
 
                 lookup.append(title)
                 changes[dir].append(bundle)
 
+            return ret
+
+
+        for group in fetch().split('\n+\n'):
+            dirSign, dir, changesStr = re.findall(groupPattern, group)[0]
+            
+            if dirSign == ' ':
+                changes[dir] = iterateFileChanges(changesStr)
+            
+            elif all(map(lambda parent: str(parent) not in changes, [pathlib.Path(dir)]+list(pathlib.Path(dir).parents))):
+                changes[dir] = dirSign
+        
         return changes

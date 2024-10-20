@@ -22,7 +22,7 @@ class DeviceManager:
             self.deviceLog.write_text('{}')
         
         self.signer = None
-        self.devices = list()
+        self.devices:list[Device] = list()
 
 
     def loadKeys(self):
@@ -87,7 +87,7 @@ def main():
 
     for dev in deviceManager.devices:
         dev.loadConfig()
-        dev.fetch()
+        print(dev.getChanges())
         dev.saveConfig()
     
     deviceManager.disconnect()
