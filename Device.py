@@ -5,17 +5,134 @@ import re
 import subprocess
 import time
 import socket
+from abc import abstractmethod
 
 from adb_shell.adb_device import AdbDeviceTcp, AdbDeviceUsb
 
 
 class Device:
+    @abstractmethod
+    def execute(self, cmd:str, *args) -> str: raise NotImplementedError
+    @abstractmethod
+    def syncDirs(self) -> list: raise NotImplementedError
+    
+
+    def fetch(self):
+        if '1' == self.execute(f'test -e "{self.tree.absolute()}"; echo $?').replace('\n', ''):
+            self.execute(f'touch "{self.tree.absolute()}"')
+        
+        syncDirs = '" "'.join(map(str, self.syncDirs()))
+        out = self.execute(f'ls -RAlt -og --full-time "{syncDirs}" > "{self.newtree.absolute()}"; diff -u "{self.tree.absolute()}" "{self.newtree.absolute()}" | grep -e ":$" -e "^[+-]"')
+        
+        out = out.split('\n', maxsplit=2)[2]
+        out = re.sub('\s{2,}', ' ', out)
+
+        return out
+
+    
+    def iterateFileChanges(self, changesStr:str):
+        timePat = '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d+? [ +-]\d{4}'
+        filePattern = '([+-])(.).*? (\d+) (' + timePat +') (.*)'
+        
+        ret = list()
+        lookup = list()
+
+        for change in changesStr.split('\n'):
+            sign, dirBit, size, timeStr, title = re.findall(filePattern, change)[0]
+
+            if dirBit == 'd':
+                self.changes[title] = sign
+                continue
+            
+            bundle = [
+                sign, 
+                int(size), 
+                datetime.datetime.fromisoformat(timeStr), 
+                title
+            ]
+            
+            if title in lookup:
+                if bundle[0] == '-':
+                    bundle = ret[lookup.index(title)]
+                bundle[0] = '~'
+                del ret[lookup.index(title)]
+
+            lookup.append(title)
+            self.changes[dir].append(bundle)
+
+        return ret
+
+
+    def getChanges(self):
+        groupPattern = '([ +-])(.*?):\n(?:[ +-]\w+? \d+\n)?((?:.|\n)*)'
+
+        for group in self.fetch().split('\n+\n'):
+            dirSign, dir, changesStr = re.findall(groupPattern, group)[0]
+            
+            if dirSign == ' ':
+                self.changes[dir] = self.iterateFileChanges(changesStr)
+            
+            elif all(map(lambda parent: str(parent) not in self.changes, [pathlib.Path(dir)]+list(pathlib.Path(dir).parents))):
+                self.changes[dir] = dirSign
+        
+        return self.changes
+
+
+class Host(Device):
+    def __init__(self, remote:Device):
+        self.changes = dict()
+        self.remote:PortableDevice = remote
+        
+        self.tree = pathlib.Path('.tmp', remote.serialno, 'tree')
+        self.newtree = pathlib.Path('.tmp', remote.serialno, 'newtree')
+
+        if not self.tree.exists():
+            self.tree.parent.mkdir(exist_ok=True)
+            self.tree.write_text('')
+
+
+    def execute(self, cmd:str, *args) -> str:
+        return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout # TODO: add args parameters
+
+
+    def syncDirs(self) -> list:
+        content = self.remote.execute(f'cat "{self.remote.config}"')
+        syncDirs = [sync['local'] for sync in json.loads(content)]
+        syncDirs.remove('')
+
+        return syncDirs
+
+
+class StationaryDevice(Device):
+    pass
+
+
+class PortableDevice(Device):
     def __init__(self):
+        self.changes = dict()
+
         self.wired = None
         self.serialno = None
         self.ip = None
 
         self.wireless = None
+
+        name = socket.gethostname()
+        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
+        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
+        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
+    
+
+    def execute(self, cmd:str, *args) -> str:
+        return self(wake=True).shell(cmd) # TODO: avoid waking up device every time 
+    
+
+    def syncDirs(self) -> list:
+        content = self().shell(f'cat {self.config}')
+        syncDirs = [sync['remote'] for sync in json.loads(content)]
+        syncDirs.remove('')
+
+        return syncDirs
     
 
     def __call__(self, wake=False):
@@ -120,69 +237,3 @@ class Device:
 
         self().push(localConfig, str(remoteConfig), mtime=int(localConfig.stat().st_mtime))
         localConfig.unlink()
-    
-
-    def getChanges(self):
-        changes = dict()
-        groupPattern = '([ +-])(.*?):\n(?:[ +-]total \d+\n)?((?:.|\n)*)'
-        timePat = '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d+? [ +-]\d{4}'
-        filePattern = '([+-])(.).*? (\d+) (' + timePat +') (.*)'
-
-        def fetch() -> str:
-            name = socket.gethostname()
-            localConfig = pathlib.Path('.tmp', f'{self.serialno}_{name}.json')
-            tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
-            newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
-
-            syncDirs = [sync['remote'] for sync in json.loads(localConfig.read_bytes())]
-            syncDirs.remove('')
-
-            if '1' == self().shell('test -e {tree}; echo $?').replace('\n', ''):
-                self().shell(f'touch {tree}')
-            
-            out = self(wake=True).shell(fr'ls -RAlt -og --full-time {" ".join(map(str, syncDirs))} > {newtree}; diff -u {tree} {newtree} | grep -e ":$" -e "^[+-]"')
-            
-            out = out.split('\n', maxsplit=2)[2]
-            out = re.sub('\s{2,}', ' ', out)
-
-            return out
-
-        def iterateFileChanges(changesStr:str) -> list[str]:
-            ret = list()
-            lookup = list()
-            for change in changesStr.split('\n'):
-                sign, dirBit, size, timeStr, title = re.findall(filePattern, change)[0]
-
-                if dirBit == 'd':
-                    changes[title] = sign
-                    continue
-                
-                bundle = [
-                    sign, 
-                    int(size), 
-                    datetime.datetime.fromisoformat(timeStr), 
-                    title
-                ]
-                
-                if title in lookup:
-                    if bundle[0] == '-':
-                        bundle = ret[lookup.index(title)]
-                    bundle[0] = '~'
-                    del ret[lookup.index(title)]
-
-                lookup.append(title)
-                changes[dir].append(bundle)
-
-            return ret
-
-
-        for group in fetch().split('\n+\n'):
-            dirSign, dir, changesStr = re.findall(groupPattern, group)[0]
-            
-            if dirSign == ' ':
-                changes[dir] = iterateFileChanges(changesStr)
-            
-            elif all(map(lambda parent: str(parent) not in changes, [pathlib.Path(dir)]+list(pathlib.Path(dir).parents))):
-                changes[dir] = dirSign
-        
-        return changes
