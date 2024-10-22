@@ -146,7 +146,7 @@ class PortableDevice(Device):
             device = self.wired
         else:
             device = self.wireless
-            if wake: device.shell('input keyevent KEYCODE_WAKEUP')
+        if wake: device.shell('input keyevent KEYCODE_WAKEUP')
         return device
 
     
@@ -154,7 +154,7 @@ class PortableDevice(Device):
         self.wired = None
         try:
             device = AdbDeviceUsb()
-            device.connect(rsa_keys=[signer], auth_timeout_s=0.1)
+            device.connect(rsa_keys=[signer])
             if '5555\n' != device.shell('getprop service.adb.tcp.port'):
                 device.close()
                 subprocess.run('adb disconnect && adb tcpip 5555 && adb kill-server && echo done', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
@@ -163,17 +163,21 @@ class PortableDevice(Device):
                 device.connect(rsa_keys=[signer], auth_timeout_s=0.1)
         
         except Exception as err:
-            if type(err).__name__ in ['UsbDeviceNotFoundError']:
+            if type(err).__name__ in ['UsbDeviceNotFoundError', 'USBErrorNoDevice']:
                 pass
             elif type(err).__name__ == 'USBErrorBusy':
+                print("[3] Warning, exception occurred:", type(err).__name__, "–", err)
+            elif type(err).__name__ == 'UsbReadFailedError':
+                device.close()
+                input('The fingerprint was not accepted in time. If you trust this machine you can do the following to accept it:\n1. Unlock the device connected to this machine.\n2. Cancel the old fingerprint request displayed on the device.\n3. In the upcoming fingerprint request tick the box to always accept fingerprints from this device and press permit within 10 seconds.\n4. The next fingerprint request will be sent after you press Enter in this script.')
+                self.connectWired(signer)
+            else:
                 if not retry:
-                    subprocess.run('adb kill-server', shell=True)
+                    subprocess.run('adb kill-server', shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
                     time.sleep(5)
                     self.connectWired(signer, retry=True)
                 else:
-                    print("[3] Warning, exception occurred:", type(err).__name__, "–", err)
-            else:
-                print("[1] Warning, exception occurred:", type(err).__name__, "–", err)
+                    print("[1] Warning, exception occurred:", type(err).__name__, "–", err)
         
         else:
             self.wired = device

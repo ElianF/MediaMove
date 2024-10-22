@@ -1,5 +1,6 @@
 import json
 import pathlib
+import socket
 import subprocess
 import re
 from typing import Iterator
@@ -27,8 +28,9 @@ class DeviceManager:
 
 
     def loadKeys(self):
-        secretKey = pathlib.Path('.key', 'adbkey')
-        publicKey = pathlib.Path('.key', 'adbkey.pub')
+        name = socket.gethostname()
+        secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{name}_MediaMove')
+        publicKey = pathlib.Path(str(secretKey)+'.pub')
 
         if not secretKey.exists():
             secretKey.parent.mkdir(exist_ok=True)
