@@ -29,7 +29,7 @@ class DeviceManager:
 
     def loadKeys(self):
         mac = hex(uuid.getnode())[2:]
-        secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{mac}_MediaMove')
+        secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{mac}_ADB_MediaMove')
         publicKey = pathlib.Path(str(secretKey)+'.pub')
 
         if not secretKey.exists():
@@ -92,10 +92,12 @@ class DeviceManager:
 
 
     def connectWirelessSSHDevices(self) -> Iterator[SSHDevice]:
+        # TODO: add extra script to add ssh-devices
         deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['SSH']
 
-        for mac, ip in deviceLogJson.items():
-            device = SSHDevice()
+        for mac, d in deviceLogJson.items():
+            user, name, ip, os = [(d[key] if key in d else '') for key in ['user', 'name', 'ip', 'os']]
+            device = SSHDevice(mac=mac, user=user, name=name, ip=ip, os=os)
             device.connect()
             if mac == device.mac:
                 yield device

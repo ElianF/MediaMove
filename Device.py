@@ -110,18 +110,83 @@ class Host(Device):
 
 
 class SSHDevice(Device):
-    def __init__(self):
+    def __init__(self, mac:str, user:str, name:str, ip:str, os:str):
         self.changes = dict()
 
-        self.mac = ''
-        self.ip = ''
+        self.mac = mac
+        self.user = user
+        self.name = name
+        self.ip = ip
+        self.os = os
 
-        mac = hex(uuid.getnode())[2:]
-        # TODO: differentiate between remote os
-        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{mac}.json')
-        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_tree')
-        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_newtree')
+        hostMac = hex(uuid.getnode())[2:]
+        self.secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{hostMac}_SSH_MediaMove')
+        self.publicKey = pathlib.Path(str(self.secretKey)+'.pub')
+        if not self.secretKey.exists() or not self.publicKey.exists():
+            self.secretKey.parent.mkdir(exist_ok=True)
+            subprocess.run(f'ssh-keygen -f {self.secretKey.name} -N ""; chmod 0600 {self.secretKey.name}', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, cwd=str(self.secretKey.parent))
 
+        if os == 'nt':
+            home = pathlib.PureWindowsPath('C:/', 'Users', self.name, '.MediaMove')
+        elif os == 'posix':
+            home = pathlib.PosixPath('/home', self.name, '.MediaMove')
+        else:
+            input(f'[4] Error, not a valid operating system for {mac}')
+            raise SystemExit()
+        self.config = home.joinpath(pathlib.Path(f'{hostMac}_config.json'))
+        self.tree = home.joinpath(pathlib.Path(f'{hostMac}_tree'))
+        self.newtree = home.joinpath(pathlib.Path(f'{hostMac}_newtree'))
+
+
+    def execute(self, cmd:str, *args) -> str:
+        return subprocess.run(f'ssh -i "{self.secretKey}" {self.user}@{self.ip}1 "{cmd}; exit"', shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout # TODO: add args parameters
+    
+
+    def syncDirs(self) -> list:
+        content = self.loadConfig()
+        syncDirs = [sync['remote'] for sync in content]
+        syncDirs.remove('')
+
+        return syncDirs
+
+
+    def connect(self):
+        tmp = subprocess.run(f'ssh -i "{self.secretKey}" {self.user}@{self.ip}1 "exit"', shell=True, stderr=subprocess.PIPE, encoding='utf-8').stderr
+
+        pass
+
+
+    def disconnect(self):
+        pass
+
+
+    def loadConfig(self) -> list[dict]:
+        template = {
+            "uniqueLocal": "copy/move/delete/ignore",
+            "newLocal": "updateLocal/updateRemote/ignore",
+            "newRemote": "updateLocal/updateRemote/ignore",
+            "uniqueRemote": "copy/move/delete/ignore",
+            "local": "",
+            "remote": "",
+            "excl": []
+        }
+
+        if '1\n' == self().shell(f'test -e {self.config.parent}; echo $?'):
+            self().shell(f'mkdir {self.config.parent}')
+        
+        if '1\n' == self().shell(f'test -e {self.config}; echo $?'):
+            content = list()
+        else:
+            content = json.loads(self().shell(f'cat {self.config}'))
+
+        if template not in content:
+            content.append(template)
+        
+            buffer = io.BytesIO(bytes(json.dumps(content, indent=4), 'utf-8'))
+            self().push(buffer, self.config)
+        
+        return content
+    
 
 class ADBDevice(Device):
     def __init__(self):
@@ -133,10 +198,11 @@ class ADBDevice(Device):
 
         self.wireless = None
 
-        mac = hex(uuid.getnode())[2:]
-        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{mac}.json')
-        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_tree')
-        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_newtree')
+        hostMac = hex(uuid.getnode())[2:]
+        home = pathlib.Path('/sdcard', '.MediaMove')
+        self.config = home.joinpath(pathlib.Path(f'{hostMac}_config.json'))
+        self.tree = home.joinpath(pathlib.Path(f'{hostMac}_tree'))
+        self.newtree = home.joinpath(pathlib.Path(f'{hostMac}_newtree'))
     
 
     def execute(self, cmd:str, *args) -> str:
