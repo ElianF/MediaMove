@@ -16,6 +16,8 @@ class Device:
     def execute(self, cmd:str, *args) -> str: raise NotImplementedError
     @abstractmethod
     def syncDirs(self) -> list: raise NotImplementedError
+    @abstractmethod
+    def id(self) -> str: raise NotImplementedError
     
 
     def fetch(self):
@@ -89,8 +91,10 @@ class Host(Device):
         self.changes = dict()
         self.remote:Device = remote
         
-        self.tree = pathlib.Path('.tmp', remote.serialno, 'tree')
-        self.newtree = pathlib.Path('.tmp', remote.serialno, 'newtree')
+        self.mac, self.user, self.name, self.ip, self.os = self.retrieveCharacteristics()
+
+        self.tree = pathlib.Path('.tmp', remote.id(), 'tree')
+        self.newtree = pathlib.Path('.tmp', remote.id(), 'newtree')
 
         if not self.tree.exists():
             self.tree.parent.mkdir(exist_ok=True)
@@ -98,7 +102,7 @@ class Host(Device):
 
 
     def execute(self, cmd:str, *args) -> str:
-        return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout # TODO: add args parameters
+        return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout.replace('\n', '') # TODO: add args parameters
 
 
     def syncDirs(self) -> list:
@@ -109,7 +113,29 @@ class Host(Device):
         return syncDirs
 
 
-class SSHDevice(Device):
+    def id(self) -> str:
+        return self.mac.replace(':', '')
+
+
+    def retrieveCharacteristics(self) -> tuple[str, str, str, str, str]:
+        os = self.execute('uname')
+        name = self.execute('hostname')
+        if os == 'Windows_NT':
+            mac = self.execute('python -c "import uuid, re; print(chr(58).join(re.findall(2*chr(46), hex(uuid.getnode())[2:])))"')
+            user = self.execute('echo %USERNAME%')
+            ip = self.execute('python -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect((chr(46).join([str(8)]*4), 80)); print(s.getsockname()[0]); s.close()"')
+        elif os == 'Linux':
+            mac = self.execute('python3 -c "import uuid, re; print(chr(58).join(re.findall(2*chr(46), hex(uuid.getnode())[2:])))"')
+            user = self.execute('whoami')
+            ip = self.execute('python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect((chr(46).join([str(8)]*4), 80)); print(s.getsockname()[0]); s.close()"')
+        else:
+            input(f'[5] Error, not a valid operating system for {name}')
+            raise SystemExit()
+        
+        return (mac, user, name, ip, os)
+
+
+class SSHDevice(Host):
     def __init__(self, mac:str, user:str, name:str, ip:str, os:str):
         self.changes = dict()
 
@@ -126,9 +152,9 @@ class SSHDevice(Device):
             self.secretKey.parent.mkdir(exist_ok=True)
             subprocess.run(f'ssh-keygen -f {self.secretKey.name} -N ""; chmod 0600 {self.secretKey.name}', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, cwd=str(self.secretKey.parent))
 
-        if os == 'nt':
+        if os == 'Windows_NT':
             home = pathlib.PureWindowsPath('C:/', 'Users', self.name, '.MediaMove')
-        elif os == 'posix':
+        elif os == 'Linux':
             home = pathlib.PosixPath('/home', self.name, '.MediaMove')
         else:
             input(f'[4] Error, not a valid operating system for {mac}')
@@ -139,7 +165,7 @@ class SSHDevice(Device):
 
 
     def execute(self, cmd:str, *args) -> str:
-        return subprocess.run(f'ssh -i "{self.secretKey}" {self.user}@{self.ip}1 "{cmd}; exit"', shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout # TODO: add args parameters
+        return subprocess.run(f"ssh -i '{self.secretKey}' {self.user}@{self.ip} '{cmd}'", shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout.replace('\n', '') # TODO: add args parameters
     
 
     def syncDirs(self) -> list:
@@ -150,10 +176,17 @@ class SSHDevice(Device):
         return syncDirs
 
 
-    def connect(self):
-        tmp = subprocess.run(f'ssh -i "{self.secretKey}" {self.user}@{self.ip}1 "exit"', shell=True, stderr=subprocess.PIPE, encoding='utf-8').stderr
+    def id(self) -> str:
+        return self.mac.replace(':', '')
 
-        pass
+
+    def connect(self) -> bool:
+        out = subprocess.run(f"ssh -i '{self.secretKey}' {self.user}@{self.ip} 'exit'", shell=True, stderr=subprocess.PIPE, encoding='utf-8').stderr
+
+        if out != '':
+            return False
+
+        return True
 
 
     def disconnect(self):
@@ -215,6 +248,10 @@ class ADBDevice(Device):
         syncDirs.remove('')
 
         return syncDirs
+
+
+    def id(self) -> str:
+        return self.serialno
     
 
     def __call__(self, wake=False):

@@ -70,8 +70,8 @@ class DeviceManager:
         if device.ip != None:
             device.connectWireless(self.signer, device.ip)
 
-            deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['ADB']
-            if device.serialno not in deviceLogJson or device.ip != deviceLogJson[device.serialno]:
+            deviceLogJson = json.loads(self.deviceLog.read_bytes())
+            if device.serialno not in deviceLogJson[self.gatewayMac]['ADB'] or device.ip != deviceLogJson[self.gatewayMac]['ADB'][device.serialno]:
                 deviceLogJson.setdefault(self.gatewayMac, dict())[device.serialno] = device.ip
                 self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
                 
@@ -80,9 +80,9 @@ class DeviceManager:
         
 
     def connectWirelessADBDevices(self, usbSerialno:str='') -> Iterator[ADBDevice]:
-        deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['ADB']
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())
 
-        for serialno, ip in deviceLogJson.items():
+        for serialno, ip in deviceLogJson[self.gatewayMac]['ADB'].items():
             if serialno == usbSerialno:
                 continue
             device = ADBDevice()
@@ -93,13 +93,25 @@ class DeviceManager:
 
     def connectWirelessSSHDevices(self) -> Iterator[SSHDevice]:
         # TODO: add extra script to add ssh-devices
-        deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['SSH']
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())
 
-        for mac, d in deviceLogJson.items():
+        for mac, d in deviceLogJson[self.gatewayMac]['SSH'].items():
             user, name, ip, os = [(d[key] if key in d else '') for key in ['user', 'name', 'ip', 'os']]
             device = SSHDevice(mac=mac, user=user, name=name, ip=ip, os=os)
-            device.connect()
-            if mac == device.mac:
+            if device.connect():
+                characteristics = device.retrieveCharacteristics()
+                
+                if characteristics != (device.mac, device.user, device.name, device.ip, device.os):
+                    del deviceLogJson[self.gatewayMac]['SSH'][device.mac]
+                    device.mac, device.user, device.name, device.ip, device.os = characteristics
+                    deviceLogJson[self.gatewayMac]['SSH'][device.mac] = {
+                        "user": device.user,
+                        "name": device.name,
+                        "ip": device.ip,
+                        "os": device.os
+                    }
+                    deviceLogJson.write_text(json.dumps(deviceLogJson, indent=4))
+                
                 yield device
 
 
