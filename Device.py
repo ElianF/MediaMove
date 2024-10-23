@@ -21,13 +21,13 @@ class Device:
     
 
     def fetch(self):
-        if '1\n' == self.execute(f'test -e "{self.tree.absolute()}"; echo $?'):
-            self.execute(f'touch "{self.tree.absolute()}"')
+        if '' != self.execute(f'ls "{self.tree}" 3>&2 2>&1 1>&3'):
+            self.execute(f'touch "{self.tree}"')
         
         syncDirs = '" "'.join(map(str, self.syncDirs()))
         if syncDirs == '':
             return ''
-        out = self.execute(f'ls -RAlt -og --full-time "{syncDirs}" > "{self.newtree.absolute()}"; diff -u "{self.tree.absolute()}" "{self.newtree.absolute()}" | grep -e ":$" -e "^[+-]"')
+        out = self.execute(f'ls -RAlt --full-time "{syncDirs}" > "{self.newtree}"; diff -u "{self.tree}" "{self.newtree}" | grep -e ":$" -e "^[+-]"', keepLinebreaks=True)
         
         out = out.split('\n', maxsplit=2)[2]
         out = re.sub('\s{2,}', ' ', out)
@@ -101,8 +101,11 @@ class Host(Device):
             self.tree.write_text('')
 
 
-    def execute(self, cmd:str, *args) -> str:
-        return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout.replace('\n', '') # TODO: add args parameters
+    def execute(self, cmd:str, keepLinebreaks:bool=False) -> str:
+        out = subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.PIPE, encoding='utf-8').stdout # TODO: add args parameters
+        if not keepLinebreaks:
+            out = out.replace('\n', '')
+        return out
 
 
     def syncDirs(self) -> list:
@@ -151,22 +154,26 @@ class SSHDevice(Host):
         if not self.secretKey.exists() or not self.publicKey.exists():
             self.secretKey.parent.mkdir(exist_ok=True)
             subprocess.run(f'ssh-keygen -f {self.secretKey.name} -N ""; chmod 0600 {self.secretKey.name}', shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, cwd=str(self.secretKey.parent))
-
+        
         if os == 'Windows_NT':
-            home = pathlib.PureWindowsPath('C:/', 'Users', self.name, '.MediaMove')
+            home = pathlib.PureWindowsPath('C:/', 'Users', self.user)
         elif os == 'Linux':
-            home = pathlib.PosixPath('/home', self.name, '.MediaMove')
+            home = pathlib.PosixPath('/home', self.user)
         else:
             input(f'[4] Error, not a valid operating system for {mac}')
             raise SystemExit()
-        self.config = home.joinpath(pathlib.Path(f'{hostMac}_config.json'))
-        self.tree = home.joinpath(pathlib.Path(f'{hostMac}_tree'))
-        self.newtree = home.joinpath(pathlib.Path(f'{hostMac}_newtree'))
+
+        self.config = home.joinpath(pathlib.Path('.MediaMove', f'{hostMac}_config.json'))
+        self.tree = home.joinpath(pathlib.Path('.MediaMove', f'{hostMac}_tree'))
+        self.newtree = home.joinpath(pathlib.Path('.MediaMove', f'{hostMac}_newtree'))
 
 
-    def execute(self, cmd:str, *args) -> str:
-        return subprocess.run(f"ssh -i '{self.secretKey}' {self.user}@{self.ip} '{cmd}'", shell=True, stdout=subprocess.PIPE, encoding='utf-8').stdout.replace('\n', '') # TODO: add args parameters
-    
+    def execute(self, cmd:str, keepLinebreaks:bool=False) -> str:
+        out = subprocess.run(f"ssh -i '{self.secretKey}' {self.user}@{self.ip} '{cmd}'", shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.PIPE, encoding='utf-8').stdout 
+        if not keepLinebreaks:
+            out = out.replace('\n', '')
+        return out
+
 
     def syncDirs(self) -> list:
         content = self.loadConfig()
@@ -204,19 +211,21 @@ class SSHDevice(Host):
             "excl": []
         }
 
-        if '1\n' == self().shell(f'test -e {self.config.parent}; echo $?'):
-            self().shell(f'mkdir {self.config.parent}')
+        if '' != self.execute(f'ls "{self.config.parent}" 3>&2 2>&1 1>&3'):
+            self.execute(f'mkdir "{self.config.parent}"')
         
-        if '1\n' == self().shell(f'test -e {self.config}; echo $?'):
+        if '' != self.execute(f'ls "{self.config}" 3>&2 2>&1 1>&3'):
             content = list()
         else:
-            content = json.loads(self().shell(f'cat {self.config}'))
+            content = json.loads(self.execute(f'cat "{self.config}"'))
 
         if template not in content:
             content.append(template)
         
-            buffer = io.BytesIO(bytes(json.dumps(content, indent=4), 'utf-8'))
-            self().push(buffer, self.config)
+            tmpFile = pathlib.Path('.tmp', 'tmp').absolute()
+            tmpFile.write_text(json.dumps(content, indent=4))
+            subprocess.run(f"scp -q -i '{self.secretKey}' '{str(tmpFile)}' {self.user}@{self.ip}:'{self.config.as_posix()}'", shell=True, stdout=subprocess.DEVNULL)
+            tmpFile.unlink()
         
         return content
     
@@ -232,13 +241,13 @@ class ADBDevice(Device):
         self.wireless = None
 
         hostMac = hex(uuid.getnode())[2:]
-        home = pathlib.Path('/sdcard', '.MediaMove')
-        self.config = home.joinpath(pathlib.Path(f'{hostMac}_config.json'))
-        self.tree = home.joinpath(pathlib.Path(f'{hostMac}_tree'))
-        self.newtree = home.joinpath(pathlib.Path(f'{hostMac}_newtree'))
+        stem = pathlib.Path('/sdcard', '.MediaMove')
+        self.config = stem.joinpath(pathlib.Path(f'{hostMac}_config.json'))
+        self.tree = stem.joinpath(pathlib.Path(f'{hostMac}_tree'))
+        self.newtree = stem.joinpath(pathlib.Path(f'{hostMac}_newtree'))
     
 
-    def execute(self, cmd:str, *args) -> str:
+    def execute(self, cmd:str) -> str:
         return self(wake=True).shell(cmd) # TODO: avoid waking up device every time 
     
 
@@ -330,11 +339,11 @@ class ADBDevice(Device):
             "remote": "",
             "excl": []
         }
-
-        if '1\n' == self().shell(f'test -e {self.config.parent}; echo $?'):
+        
+        if '' != self().shell(f'ls {self.config.parent} 3>&2 2>&1 1>&3'):
             self().shell(f'mkdir {self.config.parent}')
         
-        if '1\n' == self().shell(f'test -e {self.config}; echo $?'):
+        if '' != self().shell(f'ls {self.config.parent} 3>&2 2>&1 1>&3'):
             content = list()
         else:
             content = json.loads(self().shell(f'cat {self.config}'))
