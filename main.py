@@ -9,7 +9,7 @@ from adb_shell.auth.sign_pythonrsa import PythonRSASigner
 from adb_shell.auth.keygen import keygen
 import netifaces
 
-from Device import Host, StationaryDevice, PortableDevice
+from Device import SSHDevice, ADBDevice
 from SyncManager import SyncManager
 
 
@@ -24,7 +24,7 @@ class DeviceManager:
             self.deviceLog.write_text('{}')
         
         self.signer = None
-        self.devices:list[PortableDevice] = list()
+        self.devices:list[ADBDevice] = list()
 
 
     def loadKeys(self):
@@ -43,16 +43,25 @@ class DeviceManager:
 
 
     def connect(self):
-        device = self.connectWiredDevice()
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())
+        if self.gatewayMac not in deviceLogJson:
+            deviceLogJson[self.gatewayMac] = {
+                'ADB': dict(),
+                'SSH': dict()
+            }
+            self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
+        
+        device = self.connectWiredADBDevice()
         if device != None:
             self.devices.append(device)
-            self.devices.extend(self.connectWirelessDevices(device.serialno))
+            self.devices.extend(self.connectWirelessADBDevices(device.serialno))
         else:
-            self.devices.extend(self.connectWirelessDevices())
+            self.devices.extend(self.connectWirelessADBDevices())
+        self.devices.extend(self.connectWirelessSSHDevices())
 
 
-    def connectWiredDevice(self) -> PortableDevice:
-        device = PortableDevice()
+    def connectWiredADBDevice(self) -> ADBDevice:
+        device = ADBDevice()
         device.connectWired(self.signer)
 
         if device.wired == None:
@@ -61,21 +70,33 @@ class DeviceManager:
         if device.ip != None:
             device.connectWireless(self.signer, device.ip)
 
-            deviceLogJson = json.loads(self.deviceLog.read_bytes())
-            deviceLogJson.setdefault(self.gatewayMac, dict())[device.serialno] = device.ip
-            self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
+            deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['ADB']
+            if device.serialno not in deviceLogJson or device.ip != deviceLogJson[device.serialno]:
+                deviceLogJson.setdefault(self.gatewayMac, dict())[device.serialno] = device.ip
+                self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
+                
 
         return device
         
 
-    def connectWirelessDevices(self, usbSerialno:str='') -> Iterator[PortableDevice]:
-        deviceLogJson = json.loads(self.deviceLog.read_bytes())
+    def connectWirelessADBDevices(self, usbSerialno:str='') -> Iterator[ADBDevice]:
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['ADB']
 
-        for serialno, ip in deviceLogJson[self.gatewayMac].items():
+        for serialno, ip in deviceLogJson.items():
             if serialno == usbSerialno:
                 continue
-            device = PortableDevice()
+            device = ADBDevice()
             device.connectWireless(self.signer, ip)
+            if serialno == device.serialno:
+                yield device
+
+
+    def connectWirelessSSHDevices(self) -> Iterator[SSHDevice]:
+        deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['SSH']
+
+        for serialno, ip in deviceLogJson.items():
+            device = SSHDevice()
+            device.connect()
             if serialno == device.serialno:
                 yield device
 
@@ -94,7 +115,7 @@ def main():
     deviceManager.connect()
 
     for device in deviceManager.devices:
-        syncManager = SyncManager(device=device)
+        syncManager = SyncManager(remote=device)
         syncManager.getChanges()
     
     deviceManager.disconnect()

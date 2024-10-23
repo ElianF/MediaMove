@@ -87,7 +87,7 @@ class Device:
 class Host(Device):
     def __init__(self, remote:Device):
         self.changes = dict()
-        self.remote:PortableDevice = remote
+        self.remote:Device = remote
         
         self.tree = pathlib.Path('.tmp', remote.serialno, 'tree')
         self.newtree = pathlib.Path('.tmp', remote.serialno, 'newtree')
@@ -109,17 +109,27 @@ class Host(Device):
         return syncDirs
 
 
-class StationaryDevice(Device):
-    pass
+class SSHDevice(Device):
+    def __init__(self):
+        self.changes = dict()
+
+        self.serialno = ''
+        self.ip = ''
+
+        name = socket.gethostname()
+        # TODO: differentiate between remote os
+        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
+        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
+        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
 
 
-class PortableDevice(Device):
+class ADBDevice(Device):
     def __init__(self):
         self.changes = dict()
 
         self.wired = None
-        self.serialno = None
-        self.ip = None
+        self.serialno = ''
+        self.ip = ''
 
         self.wireless = None
 
