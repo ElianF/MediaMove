@@ -1,9 +1,9 @@
 import json
 import pathlib
-import socket
 import subprocess
 import re
 from typing import Iterator
+import uuid
 
 from adb_shell.auth.sign_pythonrsa import PythonRSASigner
 from adb_shell.auth.keygen import keygen
@@ -28,8 +28,8 @@ class DeviceManager:
 
 
     def loadKeys(self):
-        name = socket.gethostname()
-        secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{name}_MediaMove')
+        mac = hex(uuid.getnode())[2:]
+        secretKey = pathlib.Path(pathlib.Path.home(), '.ssh', f'{mac}_MediaMove')
         publicKey = pathlib.Path(str(secretKey)+'.pub')
 
         if not secretKey.exists():
@@ -94,10 +94,10 @@ class DeviceManager:
     def connectWirelessSSHDevices(self) -> Iterator[SSHDevice]:
         deviceLogJson = json.loads(self.deviceLog.read_bytes())[self.gatewayMac]['SSH']
 
-        for serialno, ip in deviceLogJson.items():
+        for mac, ip in deviceLogJson.items():
             device = SSHDevice()
             device.connect()
-            if serialno == device.serialno:
+            if mac == device.mac:
                 yield device
 
 

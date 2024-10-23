@@ -5,8 +5,8 @@ import pathlib
 import re
 import subprocess
 import time
-import socket
 from abc import abstractmethod
+import uuid
 
 from adb_shell.adb_device import AdbDeviceTcp, AdbDeviceUsb
 
@@ -113,14 +113,14 @@ class SSHDevice(Device):
     def __init__(self):
         self.changes = dict()
 
-        self.serialno = ''
+        self.mac = ''
         self.ip = ''
 
-        name = socket.gethostname()
+        mac = hex(uuid.getnode())[2:]
         # TODO: differentiate between remote os
-        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
-        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
+        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{mac}.json')
+        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_tree')
+        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_newtree')
 
 
 class ADBDevice(Device):
@@ -133,10 +133,10 @@ class ADBDevice(Device):
 
         self.wireless = None
 
-        name = socket.gethostname()
-        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{name}.json')
-        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_tree')
-        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{name}_newtree')
+        mac = hex(uuid.getnode())[2:]
+        self.config = pathlib.Path('/sdcard', 'MediaMove', f'{mac}.json')
+        self.tree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_tree')
+        self.newtree = pathlib.Path('/sdcard', 'MediaMove', f'{mac}_newtree')
     
 
     def execute(self, cmd:str, *args) -> str:
