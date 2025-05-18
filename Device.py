@@ -27,7 +27,7 @@ class Device:
         syncDirs = '" "'.join(map(str, self.syncDirs()))
         if syncDirs == '':
             return ''
-        out = self.execute(f'ls -RAlt --full-time "{syncDirs}" > "{self.newtree}"; diff -u "{self.tree}" "{self.newtree}" | grep -e ":$" -e "^[+-]"', keepLinebreaks=True)
+        out = self.execute(f'ls -RAlt --full-time "{syncDirs}" > "{self.newtree}" && diff "{self.tree}" "{self.newtree}" | grep -e ":$" -e "^[+-]"', keepLinebreaks=True)
         
         out = out.split('\n', maxsplit=2)[2]
         out = re.sub('\s{2,}', ' ', out)
@@ -72,6 +72,7 @@ class Device:
         groupPattern = '([ +-])(.*?):\n(?:[ +-]\w+? \d+\n)?((?:.|\n)*)'
 
         for group in self.fetch().split('\n+\n'):
+            break
             if group == '':
                 break
 

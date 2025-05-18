@@ -43,20 +43,20 @@ class DeviceManager:
 
 
     def connect(self):
-        deviceLogJson = json.loads(self.deviceLog.read_bytes())
-        if self.gatewayMac not in deviceLogJson:
-            deviceLogJson[self.gatewayMac] = {
-                'ADB': dict(),
-                'SSH': dict()
-            }
-            self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
+        # deviceLogJson = json.loads(self.deviceLog.read_bytes())
+        # if self.gatewayMac not in deviceLogJson:
+        #     deviceLogJson[self.gatewayMac] = {
+        #         'ADB': dict(),
+        #         'SSH': dict()
+        #     }
+        #     self.deviceLog.write_text(json.dumps(deviceLogJson, indent=4))
         
-        device = self.connectWiredADBDevice()
-        if device != None:
-            self.devices.append(device)
-            self.devices.extend(self.connectWirelessADBDevices(device.serialno))
-        else:
-            self.devices.extend(self.connectWirelessADBDevices())
+        # device = self.connectWiredADBDevice()
+        # if device != None:
+        #     self.devices.append(device)
+        #     self.devices.extend(self.connectWirelessADBDevices(device.serialno))
+        # else:
+        #     self.devices.extend(self.connectWirelessADBDevices())
         self.devices.extend(self.connectWirelessSSHDevices())
 
 
@@ -131,6 +131,7 @@ def main():
     for device in deviceManager.devices:
         syncManager = SyncManager(remote=device)
         syncManager.getChanges()
+        pass
     
     deviceManager.disconnect()
 
